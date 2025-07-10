@@ -1,0 +1,440 @@
+{
+    "name": "Twilio",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "whatsapp-webhook",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                -220,
+                0
+            ],
+            "id": "affcf749-9bc9-4f09-9c81-c388a880705d",
+            "name": "Webhook",
+            "webhookId": "39080b9e-2dd9-4ba0-b536-60601db27e76"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "c0d2f850-b49e-4009-8aa3-49735227fab6",
+                            "name": "body.From",
+                            "value": "={{ $json.body.From }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "fbabc9f1-9f67-42b1-84fd-67a94d021067",
+                            "name": "body",
+                            "value": "={{ $json.body }}",
+                            "type": "object"
+                        },
+                        {
+                            "id": "b52a798b-ea6f-4fe4-8128-207830d16091",
+                            "name": "mediaUrl",
+                            "value": "={{ $json.body.MediaUrl0 }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "eb6654a0-6d6f-4373-8ba8-197f37beb9b4",
+                            "name": "mediaType",
+                            "value": "={{ $json.body.MediaContentType0 }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                40,
+                0
+            ],
+            "id": "38530cd4-55e0-4a2f-b0a4-d3a9b67d78af",
+            "name": "Edit Fields"
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $json.body.Body }} [{{ $json.mediaUrl }}]",
+                "options": {
+                    "systemMessage": "anda adalah AI agent yang berbicara dengan sopan, profesional, dan menggunakan bahasa Minang dalam setiap balasan. Setiap Jawaban tidak lebih dari 1600 karakter. Jawaban harus ringkas, jelas, dan mudah dipahami"
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 2,
+            "position": [
+                740,
+                0
+            ],
+            "id": "7cdaff19-1393-428b-9adc-c6795cbd20eb",
+            "name": "AI Agent"
+        },
+        {
+            "parameters": {
+                "modelName": "models/gemini-2.5-pro-preview-06-05",
+                "options": {}
+            },
+            "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+            "typeVersion": 1,
+            "position": [
+                620,
+                200
+            ],
+            "id": "48c9ccb5-5447-41c4-ad3a-16dca6c0ac88",
+            "name": "Google Gemini Chat Model",
+            "credentials": {
+                "googlePalmApi": {
+                    "id": "zOIcRaRT2xYQN2Ra",
+                    "name": "Google Gemini(PaLM) Api account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.twilio.com/2010-04-01/Accounts/AC19fefae63264b6f868ed36cb2638d1ae/Messages.json",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpBasicAuth",
+                "sendBody": true,
+                "contentType": "form-urlencoded",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "From",
+                            "value": "={{ $('Edit Fields').item.json.body.To }}"
+                        },
+                        {
+                            "name": "To",
+                            "value": "={{ $('Edit Fields').item.json.body.From }}"
+                        },
+                        {
+                            "name": "Body",
+                            "value": "={{ $json.output }}"
+                        },
+                        {
+                            "name": "MediaUrl",
+                            "value": "={{ $json.mediaUrlUntukDikirim }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1140,
+                0
+            ],
+            "id": "e1034523-5dc3-4c55-b7c8-5832b4302cd4",
+            "name": "HTTP Request",
+            "credentials": {
+                "httpBasicAuth": {
+                    "id": "TODVSnr3J3oLSurd",
+                    "name": "Unnamed credential"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "sessionIdType": "customKey",
+                "sessionKey": "={{ $('Edit Fields').item.json.body.From }}",
+                "contextWindowLength": 10
+            },
+            "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+            "typeVersion": 1.3,
+            "position": [
+                760,
+                220
+            ],
+            "id": "0ab772af-ff1a-4673-9a38-0b8304e47493",
+            "name": "Simple Memory"
+        },
+        {
+            "parameters": {
+                "options": {}
+            },
+            "type": "@n8n/n8n-nodes-langchain.toolSerpApi",
+            "typeVersion": 1,
+            "position": [
+                900,
+                200
+            ],
+            "id": "a18c4653-2c8b-4aba-b0e3-b8f12a243a9e",
+            "name": "SerpAPI",
+            "credentials": {
+                "serpApi": {
+                    "id": "u4cHW6muvbi8c9pu",
+                    "name": "SerpAPI account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "={{ $json.mediaUrl }}",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpBasicAuth",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                540,
+                -180
+            ],
+            "id": "baa97b2b-5f2f-431d-93e8-93e601a78566",
+            "name": "HTTP Request1",
+            "credentials": {
+                "httpBasicAuth": {
+                    "id": "TODVSnr3J3oLSurd",
+                    "name": "Unnamed credential"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "bb4d8122-2efb-4565-9081-43c1d617b479",
+                            "leftValue": "={{ $json.mediaUrl }}",
+                            "rightValue": "=[null] {{ $json.mediaUrl }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                240,
+                -160
+            ],
+            "id": "e2a28210-24e0-4248-879a-0c4638a90b4b",
+            "name": "If"
+        },
+        {
+            "parameters": {
+                "operation": "createAnEvent",
+                "calendarId": "primary",
+                "event": {
+                    "summary": "={{ $('AI Agent').item.json.parsedEventTitle }}",
+                    "start": {
+                        "dateTime": "={{ $('FunctionNodeUntukWaktu').item.json.startDateTime }}"
+                    },
+                    "end": {
+                        "dateTime": "={{ $('FunctionNodeUntukWaktu').item.json.endDateTime }}"
+                    }
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.googleCalendar",
+            "typeVersion": 1,
+            "position": [
+                900,
+                -100
+            ],
+            "id": "google-calendar-node-id",
+            "name": "Google Calendar",
+            "credentials": {
+                "googleOAuth2Api": {
+                    "id": "YOUR_GOOGLE_OAUTH_CREDENTIAL_ID",
+                    "name": "My Google Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "https://api.tts-service.com/convert",
+                "method": "POST",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "text",
+                            "value": "={{ $('AI Agent').item.json.output }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                900,
+                -200
+            ],
+            "id": "tts-api-request",
+            "name": "TTS API Request"
+        },
+        {
+            "parameters": {
+                "functionCode": "return [ { json: { mediaUrlUntukDikirim: 'https://example.com/audio.mp3', parsedEventTitle: 'Meeting', startDateTime: '2025-07-11T10:00:00Z' } } ];"
+            },
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [
+                800,
+                -150
+            ],
+            "id": "data-processing-function",
+            "name": "Data Processing"
+        }
+    ],
+    "pinData": {},
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Edit Fields",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Edit Fields": {
+            "main": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "If",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Google Gemini Chat Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AI Agent": {
+            "main": [
+                [
+                    {
+                        "node": "HTTP Request",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Data Processing",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Simple Memory": {
+            "ai_memory": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_memory",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SerpAPI": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "If": {
+            "main": [
+                [
+                    {
+                        "node": "HTTP Request1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
+            ]
+        },
+        "HTTP Request1": {
+            "main": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "TTS API Request": {
+            "main": [
+                [
+                    {
+                        "node": "HTTP Request",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Data Processing": {
+            "main": [
+                [
+                    {
+                        "node": "Google Calendar",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "HTTP Request",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "active": true,
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "versionId": "f02e1905-99c7-4be7-82b4-630a8c23e9b6",
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "87bc2aafd3cfcdceda6ad42b1ed69665c16606f6dbb67da2a2a58cf552e97bd5"
+    },
+    "id": "rDDhwzeKqfcNuScy",
+    "tags": []
+}
