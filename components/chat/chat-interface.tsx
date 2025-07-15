@@ -24,7 +24,8 @@ import {
   Clock,
   Users,
   MoreHorizontal,
-  Loader2 // Tambahkan icon Loader2
+  Loader2, // Tambahkan icon Loader2
+  RefreshCw
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -48,6 +49,9 @@ export function ChatInterface() {
   const [streamingEnabled, setStreamingEnabled] = useState(true);
   const [streamingMessage, setStreamingMessage] = useState<string>('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const isStoppingRef = useRef(isStopping);
+  isStoppingRef.current = isStopping;
   const [showSettings, setShowSettings] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -181,11 +185,14 @@ export function ChatInterface() {
     setIsStreaming(true);
     setStreamingMessage('');
     setError(null);
+    setIsStopping(false); // Reset stopping state on new message
 
+    let userMessageId = '';
     try {
       // Tambahkan pesan user ke tampilan saat ini
+      userMessageId = `${Date.now()}_user`;
       const userMessage: ChatMessage = {
-        id: `${Date.now()}_user`,
+        id: userMessageId,
         sessionId: currentSession.id, // Pastikan sessionId ada
         role: 'user',
         content: message,
@@ -204,9 +211,16 @@ export function ChatInterface() {
           message,
           files,
           (chunk: string) => {
+            if (isStoppingRef.current) {
+              return;
+            }
             setStreamingMessage(prev => prev + chunk);
           }
         );
+
+        if (isStoppingRef.current) {
+          assistantMessage.content = streamingMessage;
+        }
       } else {
         assistantMessage = await chatService.sendMessage(currentSession.id, message, files);
       }
@@ -238,13 +252,38 @@ export function ChatInterface() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
       setStreamingMessage('');
-      // Jika ada error, kita mungkin ingin menghapus pesan user yang gagal dikirim
-      // atau menandainya sebagai error. Untuk saat ini, biarkan saja dan tampilkan error message.
-      // setMessages(prev => prev.filter(msg => msg.id !== userMessage.id)); // Opsional: hapus pesan user jika gagal
+      // Jika ada error, tandai pesan user sebagai error
+      setMessages(prev => prev.map(msg =>
+        msg.id === userMessageId ? { ...msg, status: 'error' } : msg
+      ));
       setIsStreaming(false);
     } finally {
       setIsLoading(false);
+      setIsStopping(false);
     }
+  };
+
+  const handleStopStreaming = () => {
+    setIsStopping(true);
+    setIsStreaming(false);
+  };
+
+  const handleResendMessage = async (message: ChatMessage) => {
+    // Hapus pesan yang error dan pesan AI berikutnya (jika ada)
+    const messageIndex = messages.findIndex(m => m.id === message.id);
+    if (messageIndex === -1) return;
+
+    const newMessages = [...messages];
+    // Hapus pesan user yang error
+    newMessages.splice(messageIndex, 1);
+    // Hapus pesan error dari asisten jika itu adalah pesan berikutnya
+    if (messageIndex < newMessages.length && newMessages[messageIndex].role === 'assistant' && newMessages[messageIndex].status === 'error') {
+      newMessages.splice(messageIndex, 1);
+    }
+
+    setMessages(newMessages);
+    // Kirim ulang
+    await handleSendMessage(message.content, message.files);
   };
 
   const handleNewChat = async () => {
@@ -283,6 +322,15 @@ export function ChatInterface() {
 
     await chatService.updateSessionModel(currentSession.id, model);
     setCurrentSession(prev => prev ? { ...prev, model } : null);
+  };
+
+  const handleUpdateTitle = async (sessionId: string, newTitle: string) => {
+    await chatService.updateSessionTitle(sessionId, newTitle);
+    // Perbarui state lokal untuk mencerminkan perubahan judul
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s));
+    if (currentSession?.id === sessionId) {
+      setCurrentSession(prev => prev ? { ...prev, title: newTitle } : null);
+    }
   };
 
   const handleExportChat = () => {
@@ -360,6 +408,7 @@ export function ChatInterface() {
             onSelectSession={handleSelectSession}
             onNewChat={handleNewChat}
             onDeleteSession={handleDeleteSession}
+            onUpdateTitle={handleUpdateTitle}
             onClose={() => setSidebarOpen(false)}
           />
         </div>
@@ -596,7 +645,7 @@ export function ChatInterface() {
               {/* Messages with Enhanced Spacing */}
               <div className="space-y-8">
                 {messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} />
+                  <MessageBubble key={message.id} message={message} onResend={handleResendMessage} />
                 ))}
 
                 {/* Enhanced Streaming Message */}
@@ -659,6 +708,7 @@ export function ChatInterface() {
               onSendMessage={handleSendMessage}
               disabled={isLoading || isStreaming}
               isStreaming={isStreaming}
+              onStopStreaming={handleStopStreaming}
               placeholder="Type your message..."
             />
           </div>

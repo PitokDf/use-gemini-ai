@@ -241,6 +241,15 @@ export class GeminiChatService {
     await dbService.saveSession(session);
   }
 
+  async updateSessionTitle(sessionId: string, newTitle: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    if (session) {
+      session.title = newTitle;
+      session.updatedAt = new Date();
+      await dbService.saveSession(session);
+    }
+  }
+
   /**
    * Internal helper to prepare content parts for Gemini API from message and files.
    * @param {string} message - The user's text message.
@@ -248,7 +257,21 @@ export class GeminiChatService {
    * @returns {Part[]} An array of parts suitable for Gemini API.
    */
   private _prepareContentParts(message: string, files?: FileData[]): Part[] {
-    const parts: Part[] = [{ text: message }];
+    const parts: Part[] = [];
+    // Cek apakah pesan adalah permintaan untuk membuat gambar
+    const imageRequestRegex = /^(?:buatkan|gambarkan|generate|create|draw)\s*(?:saya|aku)?\s*(?:gambar|image)?\s*(?:dari|of|tentang)?\s*(.*)/i;
+    const match = message.match(imageRequestRegex);
+
+    if (match && match[1]) {
+      // Jika ini adalah permintaan gambar, kirim prompt khusus dalam bahasa Inggris
+      const imagePrompt = match[1].trim();
+      // Tambahkan timestamp untuk memastikan keunikan prompt dan menghindari cache
+      const uniquePrompt = `${imagePrompt} (Request ID: ${Date.now()})`;
+      parts.push({ text: uniquePrompt });
+    } else {
+      // Jika bukan, proses seperti biasa
+      parts.push({ text: message });
+    }
 
     if (files && files.length > 0) {
       for (const file of files) {
@@ -274,7 +297,6 @@ export class GeminiChatService {
     }
     return parts;
   }
-
   /**
    * Internal helper to update a chat session's metadata after a message exchange.
    * @param {ChatSession} session - The session object to update.
@@ -282,6 +304,26 @@ export class GeminiChatService {
    * @param {string} userMessageContent - The content of the user's message.
    * @returns {Promise<void>}
    */
+  private async _generateSessionTitle(userMessage: string, assistantMessage: string): Promise<string> {
+    try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const prompt = `Based on the following exchange, create a very short, concise title for this conversation (maximum 5 words, no quotes).\n\nUser: "${userMessage}"\nAssistant: "${assistantMessage}"\n\nTitle:`;
+
+      const result = await model.generateContent(prompt);
+      const response = result.response;
+      let title = response.text().trim().replace(/"/g, '');
+
+      if (!title || title.length > 60) {
+        title = userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : '');
+      }
+
+      return title;
+    } catch (error) {
+      console.error("Error generating session title:", error);
+      return userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : '');
+    }
+  }
+
   private async _updateSessionMetadata(session: ChatSession, lastMessageContent: string, userMessageContent: string): Promise<void> {
     session.updatedAt = new Date();
     session.messageCount = await dbService.getMessageCount(session.id); // Get latest count
@@ -289,8 +331,7 @@ export class GeminiChatService {
 
     // Update title if it's still "New Chat" and enough messages have been exchanged
     if (session.title === 'New Chat' && session.messageCount >= 2) {
-      // Use the first user message for the title
-      session.title = userMessageContent.slice(0, 50) + (userMessageContent.length > 50 ? '...' : '');
+      session.title = await this._generateSessionTitle(userMessageContent, lastMessageContent);
     }
 
     await dbService.saveSession(session);
@@ -353,7 +394,7 @@ export class GeminiChatService {
         }));
 
       // 3. Create model instance
-      const model: GenerativeModel = genAI.getGenerativeModel({
+      const modelConfig: any = {
         model: session.model || 'gemini-1.5-flash',
         generationConfig: {
           temperature: 0.7,
@@ -361,7 +402,15 @@ export class GeminiChatService {
           topP: 0.95,
           maxOutputTokens: 8192,
         }
-      });
+      };
+
+      const imageRequestRegex = /^(?:buatkan|gambarkan|generate|create|draw)\s*(?:saya|aku)?\s*(?:gambar|image)?\s*(?:dari|of|tentang)?\s*(.*)/i;
+      if (imageRequestRegex.test(message)) {
+        // Instruksi yang lebih tegas untuk memaksa output gambar mentah
+        modelConfig.systemInstruction = "You are an image generation API. Your only function is to output raw image data. Do not use markdown. Do not use URLs. Do not write any text. Your entire response must be only the raw image data requested by the user.";
+      }
+
+      const model: GenerativeModel = genAI.getGenerativeModel(modelConfig);
 
       // 4. Start chat with history
       const chat: GeminiChatSession = model.startChat({ history });
@@ -370,6 +419,7 @@ export class GeminiChatService {
       const parts = this._prepareContentParts(message, files);
 
       let fullText = '';
+      let imageUrl = '';
       let assistantMessageId = `${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`; // Generate ID early
 
       if (onChunk) {
@@ -383,7 +433,17 @@ export class GeminiChatService {
       } else {
         // Handle non-streaming response
         const result = await chat.sendMessage(parts);
-        fullText = result.response.text();
+        const response = result.response;
+        const responseParts = response.candidates?.[0]?.content?.parts || [];
+
+        for (const part of responseParts) {
+          if (part.text) {
+            fullText += part.text;
+          } else if (part.inlineData) {
+            // Asumsi data gambar pertama yang ditemukan adalah yang utama
+            imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+          }
+        }
       }
 
       // 6. Add assistant message to DB
@@ -393,6 +453,7 @@ export class GeminiChatService {
         content: fullText,
         timestamp: new Date(),
         status: "sent",
+        imageUrl: imageUrl || undefined,
         sessionId
       };
       await dbService.saveMessage(assistantMessage, sessionId);

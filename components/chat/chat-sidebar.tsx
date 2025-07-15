@@ -29,6 +29,7 @@ interface ChatSidebarProps {
   onSelectSession: (session: ChatSession) => void;
   onNewChat: () => void;
   onDeleteSession: (sessionId: string) => void;
+  onUpdateTitle: (sessionId: string, newTitle: string) => void;
   onClose: () => void;
 }
 const groupSessionsByDate = (sessions: ChatSession[]) => {
@@ -58,10 +59,13 @@ export function ChatSidebar({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onUpdateTitle,
   onClose
 }: ChatSidebarProps) {
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<ChatSession | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
 
   const groupedSessions = useMemo(() => groupSessionsByDate(sessions), [sessions]);
 
@@ -75,6 +79,30 @@ export function ChatSidebar({
     if (sessionToDelete) onDeleteSession(sessionToDelete.id);
     setDeleteDialogOpen(false);
     setSessionToDelete(null);
+  };
+
+  const handleDoubleClick = (session: ChatSession) => {
+    setEditingSessionId(session.id);
+    setEditingTitle(session.title);
+  };
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditingTitle(e.target.value);
+  };
+
+  const handleTitleBlur = () => {
+    if (editingSessionId && editingTitle) {
+      onUpdateTitle(editingSessionId, editingTitle);
+    }
+    setEditingSessionId(null);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleTitleBlur();
+    } else if (e.key === 'Escape') {
+      setEditingSessionId(null);
+    }
   };
 
   return (
@@ -142,9 +170,21 @@ export function ChatSidebar({
                         )}
 
                         <MessageSquare className={cn("h-4 w-4 flex-shrink-0", isActive ? "text-slate-800 dark:text-slate-200" : "text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300")} />
-                        <p className={cn("flex-1 text-sm font-medium truncate", isActive ? "text-slate-900 dark:text-slate-100" : "text-slate-700 dark:text-slate-300")}>
-                          {session.title || "Untitled Chat"}
-                        </p>
+                        {editingSessionId === session.id ? (
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={handleTitleChange}
+                            onBlur={handleTitleBlur}
+                            onKeyDown={handleTitleKeyDown}
+                            className="flex-1 bg-transparent border-b border-primary focus:outline-none text-sm font-medium"
+                            autoFocus
+                          />
+                        ) : (
+                          <p onDoubleClick={() => handleDoubleClick(session)} className={cn("flex-1 text-sm font-medium truncate", isActive ? "text-slate-900 dark:text-slate-100" : "text-slate-700 dark:text-slate-300")}>
+                            {session.title || "Untitled Chat"}
+                          </p>
+                        )}
 
                         <Tooltip>
                           <TooltipTrigger asChild>

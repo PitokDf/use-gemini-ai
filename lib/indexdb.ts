@@ -19,6 +19,7 @@ export interface ChatMessage {
   timestamp: Date;
   files?: FileData[];
   status: MessageStatus;
+  imageUrl?: string;
 }
 
 

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ChatMessage, MessageStatus } from '@/lib/indexdb'; // Perbarui path jika perlu
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Copy, User, Bot, FileText, Image as ImageIcon, Code, Check, AlertTriangle, Clock } from 'lucide-react';
+import { Copy, User, Bot, FileText, Image as ImageIcon, Code, Check, AlertTriangle, Clock, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -115,9 +115,10 @@ const FileAttachments: React.FC<{ files: ChatMessage['files'] }> = ({ files }) =
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  onResend?: (message: ChatMessage) => void;
 }
 
-export const MessageBubble = React.memo(({ message }: MessageBubbleProps) => {
+export const MessageBubble = React.memo(({ message, onResend }: MessageBubbleProps) => {
   const { theme } = useTheme();
   const isUser = message.role === 'user';
 
@@ -146,6 +147,11 @@ export const MessageBubble = React.memo(({ message }: MessageBubbleProps) => {
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={copyMessageContent}>
           <Copy className="h-3.5 w-3.5" />
         </Button>
+        {isUser && message.status === 'error' && onResend && (
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onResend(message)}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
 
       {/* Avatar */}
@@ -166,35 +172,48 @@ export const MessageBubble = React.memo(({ message }: MessageBubbleProps) => {
         <FileAttachments files={message.files} />
 
         {/* LOGIKA PERUBAHAN DI SINI */}
-        <div className={cn(
-          "prose prose-sm max-w-none dark:prose-invert",
-          isUser && "prose-invert" // Tetap terapkan prose-invert untuk konsistensi warna teks di dark mode
-        )}>
-          {isUser ? (
-            // Jika pesan dari user, tampilkan sebagai teks biasa
-            <p className="whitespace-pre-wrap text-white">{message.content}</p>
-          ) : (
-            // Jika pesan dari bot, gunakan ReactMarkdown
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw]}
-              components={{
-                code({ node, className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  return match ? (
-                    <CodeBlock language={match[1]} value={String(children).replace(/\n$/, '')} />
-                  ) : (
-                    <code className="rounded bg-black/10 px-1.5 py-0.5 font-mono text-sm dark:bg-white/10" {...props}>
-                      {children}
-                    </code>
-                  );
-                }
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
-          )}
-        </div>
+        {message.imageUrl ? (
+          <div className="flex flex-col gap-2">
+            <img
+              src={message.imageUrl}
+              alt="Generated image"
+              className="rounded-lg border object-cover"
+            />
+            {message.content && (
+              <p className="text-sm text-muted-foreground italic">
+                {message.content}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className={cn(
+            "prose prose-sm max-w-none dark:prose-invert",
+            isUser && "prose-invert"
+          )}>
+            {isUser ? (
+              <p className="whitespace-pre-wrap text-white">{message.content}</p>
+            ) : (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+                components={{
+                  code({ node, className, children, ...props }) {
+                    const match = /language-(\w+)/.exec(className || '');
+                    return match ? (
+                      <CodeBlock language={match[1]} value={String(children).replace(/\n$/, '')} />
+                    ) : (
+                      <code className="rounded bg-black/10 px-1.5 py-0.5 font-mono text-sm dark:bg-white/10" {...props}>
+                        {children}
+                      </code>
+                    );
+                  }
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            )}
+          </div>
+        )}
 
         {/* Status Indicator (pojok kanan bawah bubble) */}
         {isUser && message.status !== 'sent' && (

@@ -1,5 +1,6 @@
 'use client';
 
+import mammoth from 'mammoth';
 import { useState, useRef, KeyboardEvent, useEffect, ChangeEvent, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,52 @@ const fileToText = (file: File): Promise<string> => new Promise((resolve, reject
 });
 
 
+const readDocxFile = (file: File): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const arrayBuffer = reader.result as ArrayBuffer;
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      resolve(result.value);
+    } catch (error) {
+      reject(error);
+    }
+  };
+  reader.onerror = reject;
+  reader.readAsArrayBuffer(file);
+});
+
+const readPdfFile = async (file: File): Promise<string> => {
+  const pdfjs = await import('pdfjs-dist');
+  // Pastikan workerSrc diatur hanya sekali dan di sisi klien
+  if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
+    pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
+  }
+
+  const reader = new FileReader();
+  return new Promise((resolve, reject) => {
+    reader.onload = async (event) => {
+      try {
+        if (!event.target?.result) {
+          return reject(new Error("FileReader did not load file."));
+        }
+        const pdf = await pdfjs.getDocument({ data: event.target.result as ArrayBuffer }).promise;
+        let allText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          allText += textContent.items.map(item => (item as any).str).join(' ') + '\n';
+        }
+        resolve(allText);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.onerror = (error) => reject(error);
+    reader.readAsArrayBuffer(file);
+  });
+};
+
 // === Fungsi Helper untuk Memproses Satu File (Refactored) ===
 async function processFile(file: File): Promise<ExtendedFileData> {
   const baseData: ExtendedFileData = {
@@ -54,6 +101,28 @@ async function processFile(file: File): Promise<ExtendedFileData> {
         content: await fileToText(file),
       };
     }
+    if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')) {
+      try {
+        return {
+          ...baseData,
+          content: await readDocxFile(file),
+        };
+      } catch (error) {
+        console.error(`Error processing DOCX file ${file.name}:`, error);
+        return { ...baseData, error: "Failed to read DOCX file" };
+      }
+    }
+    if (file.type === 'application/pdf') {
+      try {
+        return {
+          ...baseData,
+          content: await readPdfFile(file),
+        };
+      } catch (error) {
+        console.error(`Error processing PDF file ${file.name}:`, error);
+        return { ...baseData, error: "Failed to read PDF file" };
+      }
+    }
     // Fallback: Anggap sebagai file teks, jika gagal, tandai sebagai tidak didukung
     try {
       return {
@@ -74,9 +143,10 @@ interface ChatInputProps {
   disabled?: boolean;
   placeholder?: string;
   isStreaming?: boolean;
+  onStopStreaming?: () => void;
 }
 
-export function ChatInput({ onSendMessage, disabled, placeholder, isStreaming }: ChatInputProps) {
+export function ChatInput({ onSendMessage, disabled, placeholder, isStreaming, onStopStreaming }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState<ExtendedFileData[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
@@ -165,6 +235,7 @@ export function ChatInput({ onSendMessage, disabled, placeholder, isStreaming }:
       'application/json': ['.json'],
       'application/xml': ['.xml'],
       'application/pdf': ['.pdf'], // Example: add other types if needed
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
     },
     maxFiles: 5,
     maxSize: 10 * 1024 * 1024, // 10MB
@@ -289,20 +360,32 @@ export function ChatInput({ onSendMessage, disabled, placeholder, isStreaming }:
               <Paperclip className="h-5 w-5" />
               <span className="sr-only">Attach files</span>
             </Button>
-            <Button
-              onClick={handleSend}
-              disabled={isSendDisabled}
-              size="icon"
-              className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
-              title="Send message"
-            >
-              {isStreaming || isProcessingFiles ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Send className="h-5 w-5" />
-              )}
-              <span className="sr-only">Send message</span>
-            </Button>
+            {isStreaming ? (
+              <Button
+                onClick={onStopStreaming}
+                size="icon"
+                className="shrink-0 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                title="Stop generating"
+              >
+                <X className="h-5 w-5" />
+                <span className="sr-only">Stop generating</span>
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSend}
+                disabled={isSendDisabled}
+                size="icon"
+                className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
+                title="Send message"
+              >
+                {isProcessingFiles ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Send className="h-5 w-5" />
+                )}
+                <span className="sr-only">Send message</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>
